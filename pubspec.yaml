@@ -1,0 +1,37 @@
+name: gaprom
+description: GAPROM Messenger — Persian production messenger
+publish_to: 'none'
+version: 1.0.0+1
+environment: { sdk: '>=3.0.0 <4.0.0' }
+dependencies:
+  flutter: { sdk: flutter }
+  shared_preferences: ^2.2.2
+  path_provider: ^2.1.2
+  http: ^1.2.0
+  connectivity_plus: ^5.0.2
+  audioplayers: ^5.2.1
+  flutter_local_notifications: ^17.1.2
+  firebase_core: ^2.24.2        # اختیاری: پوش FCM
+  firebase_messaging: ^14.7.10  # اختیاری: پوش FCM
+  photo_manager: ^3.0.0-dev.5   # گرید عکس بومی
+  permission_handler: ^11.3.0
+  flutter_inappwebview: ^6.0.0
+  url_launcher: ^6.2.4
+  image: ^4.1.3
+  crypto: ^3.0.3
+dev_dependencies: { flutter_test: { sdk: flutter }, flutter_lints: ^3.0.0 }
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/
+    - assets/sounds/
+  fonts:
+    - family: Vazirmatn
+      fonts:
+        - { asset: assets/fonts/Vazirmatn-Thin.ttf, weight: 100 }
+        - { asset: assets/fonts/Vazirmatn-Light.ttf, weight: 300 }
+        - { asset: assets/fonts/Vazirmatn-Regular.ttf, weight: 400 }
+        - { asset: assets/fonts/Vazirmatn-Medium.ttf, weight: 500 }
+        - { asset: assets/fonts/Vazirmatn-SemiBold.ttf, weight: 600 }
+        - { asset: assets/fonts/Vazirmatn-Bold.ttf, weight: 700 }
+        - { asset: assets/fonts/Vazirmatn-ExtraBold.ttf, weight: 800 }
