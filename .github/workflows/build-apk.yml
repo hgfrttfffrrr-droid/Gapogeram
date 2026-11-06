@@ -22,11 +22,18 @@ jobs:
     - name: Set up Flutter
       uses: subosito/flutter-action@v2
       with:
-        flutter-version: '3.19.0' # نسخه پایدار فلتر
+        flutter-version: '3.19.0'
         channel: 'stable'
 
     - name: Get Dependencies
       run: flutter pub get
+
+    # این مرحله جدید: آپدیت خودکار ساختار اندروید به نسخه ۲
+    - name: Migrate to Android V2 Embedding
+      run: |
+        if [ -f android/app/src/main/AndroidManifest.xml ]; then
+          sed -i 's/<application/<application android:name="${applicationName}"/g' android/app/src/main/AndroidManifest.xml || true
+        fi
 
     - name: Build APK
       run: flutter build apk --debug
