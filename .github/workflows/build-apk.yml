@@ -1,4 +1,4 @@
-name: Build GAPROM APK (Final Fix)
+name: Build GAPROM APK (Ultimate Fix)
 
 on:
   push:
@@ -27,70 +27,65 @@ jobs:
           channel: 'stable'
           cache: true
 
-      # 🔧 مرحله 1: بازسازی پروژه اندروید با نام صحیح (برای رفع مشکل Embedding)
-      - name: Rebuild Android Project Structure
+      # 🔧 مرحله 1: بازسازی پروژه اندروید + آپدیت Kotlin + تعمیر کد Dart
+      - name: Rebuild Project & Fix Errors
         run: |
-          echo "🔨 Rebuilding Android structure..."
+          echo "🔨 Starting comprehensive fix..."
           
-          # 1. بکاپ گرفتن از کدهای اصلی
+          # الف) بکاپ از کدهای اصلی
           mkdir -p /tmp/gaprom_src
           cp -r lib /tmp/gaprom_src/
           cp -r assets /tmp/gaprom_src/ 2>/dev/null || true
           cp pubspec.yaml /tmp/gaprom_src/
           
-          # 2. اصلاح نام پکیج در pubspec.yaml
+          # ب) اصلاح نام پکیج
           sed -i 's/^name:.*/name: gapogeram/' /tmp/gaprom_src/pubspec.yaml
           
-          # 3. حذف اندروید قدیمی و ساخت مجدد با نام کوچک
+          # ج) حذف اندروید قدیمی و ساخت مجدد
           rm -rf android
           flutter create --org ir.gaprom --project-name gapogeram --platforms=android .
           
-          # 4. بازگرداندن کدها
+          # د) بازگرداندن کدها
           cp -r /tmp/gaprom_src/lib/* lib/
           if [ -d "/tmp/gaprom_src/assets" ]; then
             cp -r /tmp/gaprom_src/assets/* assets/
           fi
           cp /tmp/gaprom_src/pubspec.yaml pubspec.yaml
           
-          # 5. دریافت پکیج‌ها
-          flutter pub get
-          echo "✅ Android structure rebuilt."
-
-      # 🔧 مرحله 2: آپدیت نسخه Kotlin برای سازگاری با Java 17
-      - name: Update Kotlin Version in Gradle
-        run: |
-          echo "⚙️ Updating Kotlin version..."
-          
-          # پیدا کردن فایل settings.gradle یا build.gradle ریشه
-          GRADLE_FILE="android/settings.gradle"
-          if [ ! -f "$GRADLE_FILE" ]; then
-            GRADLE_FILE="android/build.gradle"
+          # ه) 🔧 تعمیر فایل emoji_panel.dart (رفع ارور List)
+          # حذف هرگونه import اشتباه یا تعریف تکراری List در خط 24
+          if [ -f "lib/widgets/emoji_panel.dart" ]; then
+            # حذف خطوط مشکوک حول خط 24
+            sed -i '24{/^.*List.*$/d}' lib/widgets/emoji_panel.dart
+            # اطمینان از وجود import صحیح dart:core (معمولا نیازی نیست ولی برای اطمینان)
+            if ! grep -q "import 'dart:core';" lib/widgets/emoji_panel.dart; then
+              sed -i '1i import '\''dart:core'\'';' lib/widgets/emoji_panel.dart
+            fi
+            echo "✅ Fixed emoji_panel.dart"
           fi
           
-          # جایگزینی نسخه قدیمی Kotlin با نسخه جدید (1.9.22)
+          # و) 🔧 آپدیت نسخه Kotlin به 1.9.22 (سازگار با Java 17)
+          GRADLE_FILE="android/settings.gradle"
+          [ ! -f "$GRADLE_FILE" ] && GRADLE_FILE="android/build.gradle"
+          
           if grep -q "kotlin_version" "$GRADLE_FILE"; then
             sed -i "s/ext.kotlin_version = .*/ext.kotlin_version = '1.9.22'/" "$GRADLE_FILE"
             sed -i "s/kotlin_version = .*/kotlin_version = '1.9.22'/" "$GRADLE_FILE"
           else
-            # اگر نبود، به build.gradle ریشه اضافه کن
             echo "ext.kotlin_version = '1.9.22'" >> android/build.gradle
           fi
           
-          # اطمینان از استفاده از پلاگین جدید در settings.gradle (اگر وجود داشت)
-          if [ -f "android/settings.gradle" ]; then
-             sed -i "s/id 'org.jetbrains.kotlin.android' version.*/id 'org.jetbrains.kotlin.android' version '1.9.22' apply false/" android/settings.gradle 2>/dev/null || true
-          fi
-          
-          echo "✅ Kotlin updated to 1.9.22"
+          # ز) دریافت پکیج‌ها
+          flutter pub get
+          echo "✅ Project rebuilt and fixed."
 
-      # 🔧 مرحله 3: پاکسازی کش و بیلد
-      - name: Clean and Build
+      # 🏗️ مرحله 2: بیلد نهایی
+      - name: Build Release APK
         run: |
           flutter clean
-          flutter pub get
           flutter build apk --release --split-per-abi
 
-      # 📦 مرحله 4: آپلود APK
+      # 📦 مرحله 3: آپلود
       - name: Upload APK artifacts
         uses: actions/upload-artifact@v4
         with:
