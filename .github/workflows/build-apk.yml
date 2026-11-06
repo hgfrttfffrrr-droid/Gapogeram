@@ -1,94 +1,132 @@
-name: Build GAPROM APK (Ultimate Fix)
+
+name: Build GAPROM APK
 
 on:
   push:
-    branches: [ main, master ]
+    branches:
+      - main
+      - master
+
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
-  build-apk:
+  build:
     name: Build Release APK
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      # دریافت سورس پروژه
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Setup Java 17
+      # نصب Java 17
+      - name: Setup Java
         uses: actions/setup-java@v4
         with:
-          distribution: 'zulu'
+          distribution: zulu
           java-version: '17'
 
+      # نصب Flutter
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.24.0'
-          channel: 'stable'
+          channel: stable
           cache: true
 
-      # 🔧 مرحله 1: بازسازی پروژه اندروید + آپدیت Kotlin + تعمیر کد Dart
-      - name: Rebuild Project & Fix Errors
+      # نمایش نسخه‌ها
+      - name: Check Environment
         run: |
-          echo "🔨 Starting comprehensive fix..."
-          
-          # الف) بکاپ از کدهای اصلی
-          mkdir -p /tmp/gaprom_src
-          cp -r lib /tmp/gaprom_src/
-          cp -r assets /tmp/gaprom_src/ 2>/dev/null || true
-          cp pubspec.yaml /tmp/gaprom_src/
-          
-          # ب) اصلاح نام پکیج
-          sed -i 's/^name:.*/name: gapogeram/' /tmp/gaprom_src/pubspec.yaml
-          
-          # ج) حذف اندروید قدیمی و ساخت مجدد
-          rm -rf android
-          flutter create --org ir.gaprom --project-name gapogeram --platforms=android .
-          
-          # د) بازگرداندن کدها
-          cp -r /tmp/gaprom_src/lib/* lib/
-          if [ -d "/tmp/gaprom_src/assets" ]; then
-            cp -r /tmp/gaprom_src/assets/* assets/
-          fi
-          cp /tmp/gaprom_src/pubspec.yaml pubspec.yaml
-          
-          # ه) 🔧 تعمیر فایل emoji_panel.dart (رفع ارور List)
-          # حذف هرگونه import اشتباه یا تعریف تکراری List در خط 24
-          if [ -f "lib/widgets/emoji_panel.dart" ]; then
-            # حذف خطوط مشکوک حول خط 24
-            sed -i '24{/^.*List.*$/d}' lib/widgets/emoji_panel.dart
-            # اطمینان از وجود import صحیح dart:core (معمولا نیازی نیست ولی برای اطمینان)
-            if ! grep -q "import 'dart:core';" lib/widgets/emoji_panel.dart; then
-              sed -i '1i import '\''dart:core'\'';' lib/widgets/emoji_panel.dart
-            fi
-            echo "✅ Fixed emoji_panel.dart"
-          fi
-          
-          # و) 🔧 آپدیت نسخه Kotlin به 1.9.22 (سازگار با Java 17)
-          GRADLE_FILE="android/settings.gradle"
-          [ ! -f "$GRADLE_FILE" ] && GRADLE_FILE="android/build.gradle"
-          
-          if grep -q "kotlin_version" "$GRADLE_FILE"; then
-            sed -i "s/ext.kotlin_version = .*/ext.kotlin_version = '1.9.22'/" "$GRADLE_FILE"
-            sed -i "s/kotlin_version = .*/kotlin_version = '1.9.22'/" "$GRADLE_FILE"
-          else
-            echo "ext.kotlin_version = '1.9.22'" >> android/build.gradle
-          fi
-          
-          # ز) دریافت پکیج‌ها
-          flutter pub get
-          echo "✅ Project rebuilt and fixed."
+          flutter --version
+          java -version
 
-      # 🏗️ مرحله 2: بیلد نهایی
+      # اصلاح نسخه Kotlin در تنظیمات Gradle
+      - name: Fix Kotlin Gradle Plugin
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          settings = Path("android/settings.gradle")
+          build = Path("android/build.gradle")
+
+          changed = False
+
+          if settings.exists():
+              content = settings.read_text()
+
+              pattern = (
+                  r"""(id\s*['"]org\.jetbrains\.kotlin\.android['"]"""
+                  r"""\s+version\s*['"])[^'"]+(['"])"""
+              )
+
+              content, count = re.subn(
+                  pattern,
+                  r"\g<1>1.9.0\2",
+                  content
+              )
+
+              if count:
+                  settings.write_text(content)
+                  print("Updated Kotlin in settings.gradle")
+                  changed = True
+
+          if build.exists():
+              content = build.read_text()
+
+              pattern = (
+                  r"""(ext\.kotlin_version\s*=\s*['"])[^'"]+(['"])"""
+              )
+
+              content, count = re.subn(
+                  pattern,
+                  r"\g<1>1.9.0\2",
+                  content
+              )
+
+              if count:
+                  build.write_text(content)
+                  print("Updated Kotlin in build.gradle")
+                  changed = True
+
+          if not changed:
+              raise SystemExit(
+                  "Kotlin version declaration not found. "
+                  "Check android/settings.gradle and android/build.gradle"
+              )
+          PY
+
+      # پاکسازی
+      - name: Clean Flutter
+        run: flutter clean
+
+      # دریافت پکیج‌ها
+      - name: Get Dependencies
+        run: flutter pub get
+
+      # بررسی کد Dart
+      - name: Analyze Dart
+        run: flutter analyze
+        continue-on-error: true
+
+      # ساخت APK نسخه Release
       - name: Build Release APK
-        run: |
-          flutter clean
-          flutter build apk --release --split-per-abi
+        run: flutter build apk --release
 
-      # 📦 مرحله 3: آپلود
-      - name: Upload APK artifacts
+      # بررسی فایل خروجی
+      - name: Verify APK
+        run: |
+          test -f build/app/outputs/flutter-apk/app-release.apk
+          ls -lh build/app/outputs/flutter-apk/app-release.apk
+
+      # آپلود APK
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: gaprom-release-apks
-          path: build/app/outputs/flutter-apk/*.apk
+          name: GAPROM-Release-APK
+          path: build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
           retention-days: 30
