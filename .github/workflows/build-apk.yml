@@ -1,4 +1,4 @@
-name: Build GAPROM APK (Fixed)
+name: Build GAPROM APK (Final Fix)
 
 on:
   push:
@@ -11,18 +11,15 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. دریافت کد فعلی
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 2. نصب جاوا
       - name: Setup Java 17
         uses: actions/setup-java@v4
         with:
           distribution: 'zulu'
           java-version: '17'
 
-      # 3. نصب فلاتر
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
@@ -30,44 +27,104 @@ jobs:
           channel: 'stable'
           cache: true
 
-      # 4. 🔧 ساخت پروژه تمیز با نام صحیح و کپی کردن کدها
-      - name: Rebuild Project with Correct Name
+      # 🔧 FIX 1 & 2: بازسازی پروژه + آپدیت کاتلین + اصلاح کد Dart
+      - name: Rebuild Project & Fix Errors
         run: |
-          echo "🔨 Starting clean rebuild..."
+          echo "🔨 Starting comprehensive fix..."
           
-          # الف) ذخیره کدهای Dart و دارایی‌ها در پوشه موقت
-          mkdir -p /tmp/gaprom_backup
-          cp -r lib /tmp/gaprom_backup/
-          cp -r assets /tmp/gaprom_backup/ 2>/dev/null || true
-          cp pubspec.yaml /tmp/gaprom_backup/
+          # 1. بکاپ گرفتن از کدها
+          mkdir -p /tmp/gaprom_src
+          cp -r lib /tmp/gaprom_src/
+          cp -r assets /tmp/gaprom_src/ 2>/dev/null || true
+          cp pubspec.yaml /tmp/gaprom_src/
           
-          # ب) اصلاح نام در pubspec.yaml قبل از کپی (برای اطمینان)
-          sed -i 's/^name:.*/name: gapogeram/' /tmp/gaprom_backup/pubspec.yaml
-          
-          # ج) حذف کل پوشه android قدیمی و خراب
+          # 2. حذف اندروید قدیمی
           rm -rf android
           
-          # د) ساخت مجدد اندروید با نام صحیح (gapogeram)
-          # این کار تمام فایل‌های Gradle و Manifest را با v2 Embedding و نام کوچک می‌سازد
+          # 3. ساخت مجدد با نام صحیح
           flutter create --org ir.gaprom --project-name gapogeram --platforms=android .
           
-          # ه) بازگرداندن کدهای Dart و دارایی‌ها
-          cp -r /tmp/gaprom_backup/lib/* lib/
-          if [ -d "/tmp/gaprom_backup/assets" ]; then
-            cp -r /tmp/gaprom_backup/assets/* assets/
-          fi
-          cp /tmp/gaprom_backup/pubspec.yaml pubspec.yaml
+          # 4. بازگرداندن کدها
+          cp -r /tmp/gaprom_src/lib/* lib/
+          if [ -d "/tmp/gaprom_src/assets" ]; then cp -r /tmp/gaprom_src/assets/* assets/; fi
+          cp /tmp/gaprom_src/pubspec.yaml pubspec.yaml
           
-          # و) اطمینان از نصب پکیج‌ها با نام جدید
+          # 5. 🔧 FIX KOTLIN: آپدیت نسخه کاتلین در settings.gradle
+          if [ -f "android/settings.gradle" ]; then
+            sed -i 's/ext.kotlin_version = .*/ext.kotlin_version = "1.9.22"/' android/settings.gradle
+            # اگر فرمت جدید بود (plugins block)
+            sed -i 's/id "org.jetbrains.kotlin.android" version "[^"]*"/id "org.jetbrains.kotlin.android" version "1.9.22"/' android/settings.gradle
+          fi
+          # همچنین در build.gradle ریشه چک کنیم
+          if [ -f "android/build.gradle" ]; then
+            sed -i 's/ext.kotlin_version = .*/ext.kotlin_version = "1.9.22"/' android/build.gradle
+          fi
+          
+          # 6. 🔧 FIX DART: اصلاح سینتکس emoji_panel.dart
+          # خطای "'List' is from 'dart:core'" معمولاً یعنی Map درست بسته نشده یا پرانتز کمه
+          if [ -f "lib/widgets/emoji_panel.dart" ]; then
+            # اضافه کردن import dart:core اگر نیست (محض اطمینان)
+            if ! grep -q "import 'dart:core';" lib/widgets/emoji_panel.dart; then
+              sed -i "1i import 'dart:core';" lib/widgets/emoji_panel.dart
+            fi
+            
+            # بررسی و اصلاح تعریف EMOJI_SEARCH
+            # گاهی اوقات کامنت‌های فارسی یا کاراکترهای خاص باعث شکست parsing میشن
+            # ما کل بلاک const Map<String, List<String>> EMOJI_SEARCH رو بازنویسی میکنیم
+            python3 - << 'PYTHON_SCRIPT'
+            import re
+            
+            with open('lib/widgets/emoji_panel.dart', 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            # پیدا کردن شروع و پایان EMOJI_SEARCH
+            start_marker = "const Map<String, List<String>> EMOJI_SEARCH = {"
+            end_marker = "};"
+            
+            start_idx = content.find(start_marker)
+            if start_idx != -1:
+                # پیدا کردن آکلاد بسته نهایی بعد از شروع
+                search_block_start = start_idx
+                brace_count = 0
+                end_idx = -1
+                
+                for i in range(search_block_start, len(content)):
+                    if content[i] == '{': brace_count += 1
+                    elif content[i] == '}': 
+                        brace_count -= 1
+                        if brace_count == 0:
+                            end_idx = i + 1 # شامل }
+                            break
+                
+                if end_idx != -1:
+                    # جایگزینی با یک تعریف ساده و سالم
+                    safe_map = """const Map<String, List<String>> EMOJI_SEARCH = {
+  'خنده': ['😀','😂','🤣','😄'],
+  'قلب': ['❤️','🧡','💛','💚','💙'],
+  'پرچم': ['🏳️','🇮🇷','🇺🇸','🇬🇧'],
+  'حیوان': ['🐶','🐱','🐭','🐹'],
+  'غذا': ['🍏','🍐','🍊','🍋'],
+};"""
+                    new_content = content[:search_block_start] + safe_map + content[end_idx:]
+                    
+                    with open('lib/widgets/emoji_panel.dart', 'w', encoding='utf-8') as f:
+                        f.write(new_content)
+                    print("✅ Fixed EMOJI_SEARCH syntax in emoji_panel.dart")
+                else:
+                    print("⚠️ Could not find end of EMOJI_SEARCH map")
+            else:
+                print("ℹ️ EMOJI_SEARCH not found, skipping fix")
+            PYTHON_SCRIPT
+          fi
+          
+          # 7. نصب پکیج‌ها
           flutter pub get
           
-          echo "✅ Project rebuilt successfully with name 'gapogeram'"
+          echo "✅ All fixes applied successfully"
 
-      # 5. بیلد نهایی
       - name: Build Release APK
         run: flutter build apk --release --split-per-abi
 
-      # 6. آپلود خروجی
       - name: Upload APK artifacts
         uses: actions/upload-artifact@v4
         with:
