@@ -29,36 +29,51 @@ jobs:
           channel: 'stable'
           cache: true
 
-      - name: Cache Pub dependencies
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.pub-cache
-            **/.dart_tool
-          key: ${{ runner.os }}-pub-${{ hashFiles('**/pubspec.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-pub-
+      # 🔧 FIX 1: نام پکیج در pubspec.yaml باید حروف کوچک باشد
+      - name: Fix pubspec package name (lowercase)
+        run: |
+          if grep -q '^name:[[:space:]]*Gapogeram' pubspec.yaml; then
+            sed -i 's/^name:[[:space:]]*Gapogeram/name: gapogeram/' pubspec.yaml
+            echo "✅ Fixed pubspec name: Gapogeram -> gapogeram"
+          elif grep -q '^name:[[:space:]]*[A-Z]' pubspec.yaml; then
+            CURRENT=$(grep '^name:' pubspec.yaml | awk '{print $2}')
+            LOWER=$(echo "$CURRENT" | tr '[:upper:]' '[:lower:]')
+            sed -i "s/^name:.*/name: $LOWER/" pubspec.yaml
+            echo "✅ Fixed pubspec name: $CURRENT -> $LOWER"
+          else
+            echo "✅ pubspec name is already valid"
+          fi
+          head -3 pubspec.yaml
 
       - name: Get Flutter dependencies
         run: flutter pub get
 
-      # 🔧 اصلاح خودکار Android v1 -> v2 embedding
+      # 🔧 FIX 2: مهاجرت خودکار Android embedding به v2
       - name: Fix Android embedding v2
         run: |
-          # حذف هرگونه اشاره به v1 embedding
+          # حذف فایل‌های قدیمی اندروید اگر وجود دارند
+          rm -rf android/app/src/main/java io.flutter.app.FlutterApplication 2>/dev/null || true
+          
+          # بازسازی ساختار اندروید با v2
+          flutter create --platforms=android .
+          
+          # اطمینان از flutterEmbedding = 2
           if [ -f "android/app/src/main/AndroidManifest.xml" ]; then
             sed -i 's/android:value="1"/android:value="2"/g' android/app/src/main/AndroidManifest.xml
           fi
           
-          # اطمینان از وجود flutterEmbedding v2
-          if ! grep -q "flutterEmbedding" android/app/src/main/AndroidManifest.xml; then
-            sed -i '/<\/application>/i \        <meta-data\n            android:name="flutterEmbedding"\n            android:value="2"/>' android/app/src/main/AndroidManifest.xml
-          fi
-          
-          # بازسازی فایل‌های اندروید با ساختار v2
-          flutter create --platforms=android .
-          
-          echo "✅ Android embedding v2 fixed"
+          echo "✅ Android embedding fixed to v2"
+
+      - name: Verify project structure
+        run: |
+          echo "--- pubspec.yaml ---"
+          head -5 pubspec.yaml
+          echo ""
+          echo "--- MainActivity.kt ---"
+          find android -name "MainActivity.kt" -exec cat {} \;
+          echo ""
+          echo "--- AndroidManifest flutterEmbedding ---"
+          grep -A1 "flutterEmbedding" android/app/src/main/AndroidManifest.xml || echo "Not found"
 
       - name: Flutter analyze
         run: flutter analyze || true
@@ -66,10 +81,10 @@ jobs:
       - name: Build Release APKs (split-per-abi)
         run: flutter build apk --release --split-per-abi
 
-      - name: Upload APK artifacts
+      - name: Upload split APKs
         uses: actions/upload-artifact@v4
         with:
-          name: gaprom-apks
+          name: gaprom-split-apks
           path: |
             build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk
             build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
