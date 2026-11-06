@@ -1,0 +1,19 @@
+// server/index.js — Express + SQLite + FCM
+const express = require('express'), fs = require('fs'), admin = require('firebase-admin');
+const DB = 'db.json';
+let db = fs.existsSync(DB) ? JSON.parse(fs.readFileSync(DB)) : { users: [], posts: [] };
+const save = () => fs.writeFileSync(DB, JSON.stringify(db));
+try { admin.initializeApp({ credential: admin.credential.cert(require('./fcm.json')) }); } catch (e) {}
+const app = express(); app.use(express.json());
+app.get('/ping', (_, r) => r.send('ok'));
+app.post('/users', (q, r) => { const i = db.users.findIndex(u => u.phone === q.body.phone);
+  i >= 0 ? db.users[i] = q.body : db.users.push(q.body); save(); r.json({ ok: 1 }); });
+app.get('/members', (_, r) => r.send(String(db.users.filter(u => u.verified).length)));
+app.get('/posts', (_, r) => r.json(db.posts));
+app.post('/posts', async (q, r) => { const p = q.body; db.posts = db.posts.filter(x => x.id !== p.id); db.posts.push(p); save();
+  try { await admin.messaging().sendToTopic('members', { notification: { title: 'کانال رسمی گپروم', body: p.text }, data: { postId: p.id } }); } catch (e) {}
+  r.json({ ok: 1 }); });
+app.post('/posts/update', (q, r) => { const i = db.posts.findIndex(p => p.id === q.body.id); if (i >= 0) db.posts[i] = q.body; save(); r.json({ ok: 1 }); });
+app.post('/posts/delete', (q, r) => { db.posts = db.posts.filter(p => p.id !== q.body.id); save(); r.json({ ok: 1 }); });
+app.post('/posts/view', (q, r) => { const p = db.posts.find(p => p.id === q.body.id); if (p && !p.views.includes(q.body.phone)) p.views.push(q.body.phone); save(); r.json({ ok: 1 }); });
+app.listen(process.env.PORT || 8080);
